@@ -1,0 +1,117 @@
+# Swift Package Manager
+.build/
+.swiftpm/
+Package.resolved
+/*.xcodeproj
+DerivedData/
+
+# Xcode
+xcuserdata/
+*.xcworkspace/
+!default.xcworkspace/
+*.xcuserstate
+*.xcscmblueprint
+*.xcscheme
+*.moved-aside
+*.pbxuser
+!default.pbxuser
+*.mode1v3
+!default.mode1v3
+*.mode2v3
+!default.mode2v3
+*.perspectivev3
+!default.perspectivev3
+timeline.xctimeline
+playground.xcworkspace
+
+# Xcode Patch
+*.xcodeproj/*
+!*.xcodeproj/project.pbxproj
+!*.xcodeproj/xcshareddata/
+!*.xcworkspace/contents.xcworkspacedata
+**/xcshareddata/WorkspaceSettings.xcsettings
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon
+._*
+.DocumentRevisions-V100
+.fseventsd
+.Spotlight-V100
+.TemporaryItems
+.Trashes
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+.AppleDB
+.AppleDesktop
+Network Trash Folder
+Temporary Items
+.apdisk
+
+# VS Code
+.vscode/
+*.code-workspace
+
+# JetBrains IDEs
+.idea/
+*.iml
+*.iws
+*.ipr
+cmake-build-*/
+out/
+
+# Build artifacts
+build/
+DerivedData/
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+# CocoaPods (if ever used)
+Pods/
+*.xcworkspace
+
+# Carthage (if ever used)
+Carthage/Build/
+Carthage/Checkouts
+
+# fastlane
+fastlane/report.xml
+fastlane/Preview.html
+fastlane/screenshots/**/*.png
+fastlane/test_output
+
+# Test Coverage
+*.lcov
+*.profraw
+*.profdata
+coverage/
+.coverage/
+
+# Environment
+.env
+.env.local
+*.env
+
+# Token files (for security)
+*token*.json
+*token*.txt
+.claude-token
+.vibekit/
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+*.tmp
+*.temp
+tmp/
+temp/
+
+# Documentation build
+docs/_build/
+docs/.build/
+.docc-build/
