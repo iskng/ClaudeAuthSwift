@@ -8,7 +8,10 @@ Native Swift/iOS OAuth authentication library for Claude AI MAX subscriptions. S
 - **Secure Token Storage**: Keychain integration with biometric protection support
 - **PKCE OAuth 2.0**: Industry-standard secure authentication flow
 - **SwiftUI & UIKit Support**: Ready-to-use views and integration helpers
-- **Automatic Token Refresh**: Seamless token management
+- **Automatic Token Refresh**: Seamless token management with event notifications
+- **Token Event System**: Subscribe to auth events via AsyncStream, Combine, or NotificationCenter
+- **Clipboard Detection**: Automatic code capture from clipboard (iOS)
+- **Manual Entry Fallback**: Handle clipboard permission denial gracefully
 - **Actor-based Concurrency**: Thread-safe with modern Swift concurrency
 - **Zero Dependencies**: Uses only native Apple frameworks
 
@@ -178,6 +181,138 @@ func callClaudeAPI() async throws {
 - **Automatic Refresh**: Tokens refreshed 1 hour before expiry
 - **Biometric Protection**: Optional Face ID/Touch ID for token access
 
+## Token Events
+
+Subscribe to authentication lifecycle events to keep your app in sync with token changes.
+
+### Event Types
+
+- `authenticated`: Initial authentication completed
+- `refreshed`: Token automatically refreshed
+- `refreshFailed`: Token refresh attempt failed
+- `expired`: Token expired and cannot be refreshed
+- `loggedOut`: User logged out
+- `manuallyUpdated`: Token updated via manual entry
+
+### Subscription Methods
+
+#### 1. AsyncStream (Recommended)
+
+Best for modern Swift async/await code:
+
+```swift
+Task {
+    for await event in ClaudeAuth.shared.tokenEvents {
+        switch event.event {
+        case .refreshed(let oldToken, let newToken):
+            print("Token refreshed!")
+            // Update your API client headers
+            apiClient.updateAuthHeader(newToken.accessToken)
+            
+        case .expired(let token):
+            print("Token expired, need re-authentication")
+            showLoginScreen()
+            
+        case .refreshFailed(let error):
+            print("Refresh failed: \(error)")
+            handleRefreshError(error)
+            
+        default:
+            break
+        }
+    }
+}
+```
+
+#### 2. Combine Publisher
+
+Perfect for reactive programming and SwiftUI:
+
+```swift
+import Combine
+
+class MyViewModel: ObservableObject {
+    private var cancellables = Set<AnyCancellable>()
+    
+    init() {
+        ClaudeAuth.shared.tokenEventPublisher
+            .filter { context in
+                // Only listen for refresh events
+                if case .refreshed = context.event { return true }
+                return false
+            }
+            .sink { context in
+                print("Token refreshed at \(context.timestamp)")
+                // Update your API headers
+            }
+            .store(in: &cancellables)
+    }
+}
+```
+
+#### 3. NotificationCenter
+
+For compatibility with older code or Objective-C:
+
+```swift
+// Subscribe to refresh events
+NotificationCenter.default.addObserver(
+    forName: .claudeAuthTokenRefreshed,
+    object: ClaudeAuth.shared,
+    queue: .main
+) { notification in
+    if let oldToken = notification.userInfo?[TokenEventKeys.oldToken] as? OAuthToken,
+       let newToken = notification.userInfo?[TokenEventKeys.newToken] as? OAuthToken {
+        print("Token refreshed from \(oldToken.accessToken) to \(newToken.accessToken)")
+    }
+}
+
+// Available notification names:
+// .claudeAuthAuthenticated
+// .claudeAuthTokenRefreshed
+// .claudeAuthTokenExpired
+// .claudeAuthLoggedOut
+```
+
+### Common Patterns
+
+#### Auto-update API Client
+
+```swift
+Task {
+    for await event in ClaudeAuth.shared.tokenEvents {
+        if case .refreshed(_, let newToken) = event.event {
+            // Update all API clients with new token
+            APIClient.shared.setAuthToken(newToken.accessToken)
+        }
+    }
+}
+```
+
+#### Handle Authentication State Changes
+
+```swift
+ClaudeAuth.shared.tokenEventPublisher
+    .receive(on: DispatchQueue.main)
+    .sink { context in
+        switch context.event {
+        case .authenticated, .refreshed:
+            self.isLoggedIn = true
+            
+        case .expired, .loggedOut:
+            self.isLoggedIn = false
+            self.showLoginScreen()
+            
+        case .refreshFailed:
+            self.showRefreshError()
+            
+        default:
+            break
+        }
+    }
+    .store(in: &cancellables)
+```
+
 ## API Reference
 
 ### ClaudeAuth
@@ -192,10 +327,15 @@ class ClaudeAuth: ObservableObject {
     @Published var isAuthenticated: Bool
     @Published var currentToken: OAuthToken?
     
+    // Event streams
+    var tokenEvents: AsyncStream<TokenEventContext> { get }
+    let tokenEventPublisher: PassthroughSubject<TokenEventContext, Never>
+    
     // Authentication
     func authenticate() async throws -> OAuthToken
     func startAuthentication() async throws -> AuthenticationSession
     func completeAuthentication(authCode: String) async throws -> OAuthToken
+    func completeAuthenticationManually(code: String) async throws -> OAuthToken
     
     // Token management
     func getValidAccessToken() async throws -> String
