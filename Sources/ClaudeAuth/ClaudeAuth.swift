@@ -112,8 +112,8 @@ public class ClaudeAuth: ObservableObject {
             return token
         } catch {
             // Don't clear session data on error - allow retry
-            // Only clear if it's a final error like invalid state
-            if case AuthError.invalidState = error {
+            // Only clear if it's a final error like state mismatch
+            if case AuthError.stateMismatch = error {
                 self.currentPKCE = nil
                 self.currentState = nil
             }
