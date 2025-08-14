@@ -1,4 +1,5 @@
 import Foundation
+import Combine
 #if canImport(AuthenticationServices)
 import AuthenticationServices
 #endif
@@ -29,6 +30,23 @@ public class ClaudeAuth: ObservableObject {
     
     /// Current state parameter
     private var currentState: String?
+    
+    // MARK: - Event System
+    
+    /// AsyncStream for token events (modern Swift concurrency)
+    public private(set) lazy var tokenEvents: AsyncStream<TokenEventContext> = {
+        AsyncStream { continuation in
+            self.eventContinuation = continuation
+        }
+    }()
+    
+    private var eventContinuation: AsyncStream<TokenEventContext>.Continuation?
+    
+    /// Combine publisher for token events
+    public let tokenEventPublisher = PassthroughSubject<TokenEventContext, Never>()
+    
+    /// Enable/disable NotificationCenter notifications
+    public var sendNotifications: Bool = true
     
     /// Initialize with custom configuration
     /// - Parameters:
@@ -108,6 +126,9 @@ public class ClaudeAuth: ObservableObject {
             // Clear temporary data only on success
             self.currentPKCE = nil
             self.currentState = nil
+            
+            // Emit authenticated event
+            emitTokenEvent(.authenticated(token), source: .manual)
             
             return token
         } catch {
@@ -200,18 +221,30 @@ public class ClaudeAuth: ObservableObject {
         // Check if token needs refresh
         if token.isExpired {
             guard let refreshToken = token.refreshToken else {
+                emitTokenEvent(.expired(token), source: .automatic)
                 throw AuthError.noRefreshToken
             }
             
-            // Refresh token
-            token = try await client.refreshAccessToken(refreshToken: refreshToken)
+            let oldToken = token
             
-            // Store new token
-            try await storage.setToken(token)
-            
-            // Update state
-            self.currentToken = token
-            self.isAuthenticated = true
+            do {
+                // Refresh token
+                token = try await client.refreshAccessToken(refreshToken: refreshToken)
+                
+                // Store new token
+                try await storage.setToken(token)
+                
+                // Update state
+                self.currentToken = token
+                self.isAuthenticated = true
+                
+                // Emit refresh event
+                emitTokenEvent(.refreshed(old: oldToken, new: token), source: .automatic)
+            } catch {
+                // Emit refresh failed event
+                emitTokenEvent(.refreshFailed(error: error), source: .automatic)
+                throw error
+            }
         }
         
         return token.accessToken
@@ -234,8 +267,65 @@ public class ClaudeAuth: ObservableObject {
     /// Clear authentication (logout)
     public func logout() async throws {
         try await storage.removeToken()
+        let previousToken = self.currentToken
         self.currentToken = nil
         self.isAuthenticated = false
+        
+        // Emit logout event
+        if previousToken != nil {
+            emitTokenEvent(.loggedOut, source: .manual)
+        }
+    }
+    
+    // MARK: - Event Emission
+    
+    /// Emit a token event to all listeners
+    private func emitTokenEvent(_ event: TokenEvent, source: TokenEventContext.TokenEventSource = .automatic) {
+        let context = TokenEventContext(event: event, source: source)
+        
+        // Emit to AsyncStream
+        eventContinuation?.yield(context)
+        
+        // Emit to Combine publisher
+        tokenEventPublisher.send(context)
+        
+        // Send NotificationCenter notification if enabled
+        if sendNotifications {
+            let notificationName: Notification.Name
+            var userInfo: [String: Any] = [TokenEventKeys.source: source.rawValue]
+            
+            switch event {
+            case .authenticated(let token):
+                notificationName = .claudeAuthAuthenticated
+                userInfo[TokenEventKeys.token] = token
+                
+            case .refreshed(let old, let new):
+                notificationName = .claudeAuthTokenRefreshed
+                userInfo[TokenEventKeys.oldToken] = old
+                userInfo[TokenEventKeys.newToken] = new
+                
+            case .refreshFailed(let error):
+                notificationName = .claudeAuthTokenRefreshed
+                userInfo[TokenEventKeys.error] = error
+                
+            case .expired(let token):
+                notificationName = .claudeAuthTokenExpired
+                userInfo[TokenEventKeys.token] = token
+                
+            case .loggedOut:
+                notificationName = .claudeAuthLoggedOut
+                
+            case .manuallyUpdated(let token):
+                notificationName = .claudeAuthAuthenticated
+                userInfo[TokenEventKeys.token] = token
+            }
+            
+            NotificationCenter.default.post(
+                name: notificationName,
+                object: self,
+                userInfo: userInfo
+            )
+        }
     }
     
     /// Verify token with Claude API
