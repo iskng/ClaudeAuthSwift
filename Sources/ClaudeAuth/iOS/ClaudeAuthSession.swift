@@ -22,6 +22,7 @@ public class ClaudeAuthSession: NSObject, ObservableObject {
     private var clipboardMonitorTimer: Timer?
     private var previousClipboardContent: String?
     private var authCompletion: ((Result<OAuthToken, Error>) -> Void)?
+    private var hasCompleted = false
     private let auth: ClaudeAuth
     
     // MARK: - Configuration
@@ -38,6 +39,9 @@ public class ClaudeAuthSession: NSObject, ObservableObject {
         
         /// Check clipboard every N seconds while session is active
         public var clipboardCheckInterval: TimeInterval = 0.5
+        
+        /// Skip clipboard entirely and go straight to manual entry
+        public var skipClipboard: Bool = false
         
         /// Presenting view controller for ASWebAuthenticationSession
         public weak var presentingViewController: UIViewController?
@@ -143,18 +147,29 @@ public class ClaudeAuthSession: NSObject, ObservableObject {
     
     /// Cancel the current authentication session
     public func cancel() {
+        guard !hasCompleted else { return }
+        
         authSession?.cancel()
         clipboardMonitorTimer?.invalidate()
         isAuthenticating = false
         needsManualCodeEntry = false
+        hasCompleted = true
         authCompletion?(.failure(AuthError.userCancelled))
     }
     
     // MARK: - Private Methods
     
     private func startWebSession(with url: URL) async throws -> OAuthToken {
+        // Reset completion flag
+        hasCompleted = false
+        
         return try await withCheckedThrowingContinuation { continuation in
-            self.authCompletion = continuation.resume
+            self.authCompletion = { result in
+                // Ensure we only resume once
+                guard !self.hasCompleted else { return }
+                self.hasCompleted = true
+                continuation.resume(with: result)
+            }
             
             let session = ASWebAuthenticationSession(
                 url: url,
@@ -168,8 +183,8 @@ public class ClaudeAuthSession: NSObject, ObservableObject {
             
             self.authSession = session
             
-            // Start clipboard monitoring if configured
-            if configuration.autoMonitorClipboard {
+            // Start clipboard monitoring if configured and not skipped
+            if configuration.autoMonitorClipboard && !configuration.skipClipboard {
                 startClipboardMonitoring()
             }
             
@@ -188,8 +203,12 @@ public class ClaudeAuthSession: NSObject, ObservableObject {
         // Session closed - check for errors first
         if let error = error {
             if (error as NSError).code == ASWebAuthenticationSessionError.canceledLogin.rawValue {
-                // User cancelled - immediately check clipboard, then wait
-                checkClipboardImmediately()
+                // User cancelled - check clipboard unless skipped
+                if configuration.skipClipboard {
+                    handleNoCodeFound()
+                } else {
+                    checkClipboardImmediately()
+                }
             } else {
                 // Real error
                 stopClipboardMonitoring()
@@ -199,7 +218,11 @@ public class ClaudeAuthSession: NSObject, ObservableObject {
         }
         
         // Session completed without callback URL (expected for manual code)
-        checkClipboardImmediately()
+        if configuration.skipClipboard {
+            handleNoCodeFound()
+        } else {
+            checkClipboardImmediately()
+        }
     }
     
     private func checkClipboardImmediately() {
@@ -217,6 +240,9 @@ public class ClaudeAuthSession: NSObject, ObservableObject {
     }
     
     private func completeWithClipboardContent(_ content: String) {
+        // Check if already completed
+        guard !hasCompleted else { return }
+        
         Task { @MainActor in
             do {
                 let token = try await auth.completeAuthentication(authCode: content)
@@ -282,6 +308,9 @@ public class ClaudeAuthSession: NSObject, ObservableObject {
     }
     
     private func handleNoCodeFound() {
+        // Check if already completed
+        guard !hasCompleted else { return }
+        
         if configuration.showManualEntryFallback {
             // Trigger manual entry UI
             needsManualCodeEntry = true

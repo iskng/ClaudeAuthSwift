@@ -111,6 +111,21 @@ public class ClaudeAuth: ObservableObject {
         return token
     }
     
+    /// Complete authentication with manually provided code when clipboard access is denied
+    /// This method maintains the session context from startAuthentication
+    /// - Parameter manualCode: The authentication code copied manually by the user
+    /// - Returns: OAuth token
+    @discardableResult
+    public func completeAuthenticationManually(code manualCode: String) async throws -> OAuthToken {
+        // Validate we have an active session
+        guard currentPKCE != nil, currentState != nil else {
+            throw AuthError.invalidResponse("No active authentication session. Call startAuthentication() first.")
+        }
+        
+        // Use the existing completeAuthentication method
+        return try await completeAuthentication(authCode: manualCode)
+    }
+    
     /// Authenticate with automatic browser presentation (iOS/macOS only)
     /// - Returns: OAuth token
     #if canImport(AuthenticationServices)
