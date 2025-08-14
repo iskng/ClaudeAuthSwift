@@ -12,7 +12,7 @@ public class ClaudeAuthSession: NSObject, ObservableObject {
     
     @Published public private(set) var isAuthenticating = false
     @Published public private(set) var error: Error?
-    @Published public private(set) var needsManualCodeEntry = false
+    @Published public var needsManualCodeEntry = false
     
     // MARK: - Private Properties
     
