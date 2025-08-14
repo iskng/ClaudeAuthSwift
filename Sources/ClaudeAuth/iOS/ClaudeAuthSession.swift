@@ -190,16 +190,20 @@ public class ClaudeAuthSession: NSObject, ObservableObject {
             
             // Start the session
             if !session.start() {
-                continuation.resume(throwing: AuthError.sessionFailed(
+                // Use authCompletion to ensure single resume
+                self.authCompletion?(.failure(AuthError.sessionFailed(
                     NSError(domain: "ClaudeAuth", code: -1, userInfo: [
                         NSLocalizedDescriptionKey: "Failed to start authentication session"
                     ])
-                ))
+                )))
             }
         }
     }
     
     private func handleSessionCompletion(url: URL?, error: Error?) {
+        // Guard against double completion
+        guard !hasCompleted else { return }
+        
         // Session closed - check for errors first
         if let error = error {
             if (error as NSError).code == ASWebAuthenticationSessionError.canceledLogin.rawValue {
@@ -246,8 +250,10 @@ public class ClaudeAuthSession: NSObject, ObservableObject {
         Task { @MainActor in
             do {
                 let token = try await auth.completeAuthentication(authCode: content)
+                // Use authCompletion which checks hasCompleted
                 authCompletion?(.success(token))
             } catch {
+                // Use authCompletion which checks hasCompleted
                 authCompletion?(.failure(error))
             }
         }
