@@ -21,7 +21,9 @@ public actor KeychainTokenStorage: TokenStorage {
     }
     
     public func getToken() async throws -> OAuthToken? {
-        let query = buildQuery()
+        var query = buildQuery()
+        query[kSecReturnData as String] = true
+        query[kSecMatchLimit as String] = kSecMatchLimitOne
         
         var result: AnyObject?
         let status = SecItemCopyMatching(query as CFDictionary, &result)
@@ -61,6 +63,7 @@ public actor KeychainTokenStorage: TokenStorage {
             addQuery[kSecValueData as String] = data
             addQuery[kSecAttrCreationDate as String] = Date()
             addQuery[kSecAttrModificationDate as String] = Date()
+            addQuery[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlockedThisDeviceOnly
             status = SecItemAdd(addQuery as CFDictionary, nil)
         }
         
@@ -82,17 +85,13 @@ public actor KeychainTokenStorage: TokenStorage {
         var query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
-            kSecAttrAccount as String: account,
-            kSecReturnData as String: true
+            kSecAttrAccount as String: account
         ]
         
         // Add access group if specified
         if let accessGroup = accessGroup {
             query[kSecAttrAccessGroup as String] = accessGroup
         }
-        
-        // Set accessibility - accessible when unlocked, migrate to new device
-        query[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlockedThisDeviceOnly
         
         return query
     }
