@@ -120,6 +120,11 @@ public class ClaudeAuthSession: NSObject, ObservableObject {
     
     /// Complete authentication with manually entered code
     public func completeWithManualCode(_ code: String) async throws -> OAuthToken {
+        // Check if auth instance has an active session
+        guard auth.hasActiveSession else {
+            throw AuthError.invalidResponse("No active authentication session in auth instance")
+        }
+        
         guard let state = currentState else {
             throw AuthError.invalidResponse("No active authentication session")
         }
@@ -131,7 +136,7 @@ public class ClaudeAuthSession: NSObject, ObservableObject {
             // Validate code format
             let validatedCode = try validateAndFormatCode(code, expectedState: state)
             
-            // Complete authentication
+            // Complete authentication using the auth instance's session
             let token = try await auth.completeAuthentication(authCode: validatedCode)
             
             isAuthenticating = false

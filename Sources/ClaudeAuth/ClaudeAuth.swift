@@ -84,31 +84,41 @@ public class ClaudeAuth: ObservableObject {
     public func completeAuthentication(authCode: String) async throws -> OAuthToken {
         guard let pkce = currentPKCE,
               let expectedState = currentState else {
-            throw AuthError.invalidResponse("No active authentication session")
+            throw AuthError.invalidResponse("No active authentication session. Make sure startAuthentication() was called first.")
         }
         
-        // Parse and validate code
-        let (code, state) = try OAuthClient.parseAuthorizationCode(authCode, expectedState: expectedState)
-        
-        // Exchange for token
-        let token = try await client.exchangeCodeForToken(
-            code: code,
-            codeVerifier: pkce.codeVerifier,
-            state: state
-        )
-        
-        // Store token
-        try await storage.setToken(token)
-        
-        // Update state
-        self.currentToken = token
-        self.isAuthenticated = true
-        
-        // Clear temporary data
-        self.currentPKCE = nil
-        self.currentState = nil
-        
-        return token
+        do {
+            // Parse and validate code
+            let (code, state) = try OAuthClient.parseAuthorizationCode(authCode, expectedState: expectedState)
+            
+            // Exchange for token
+            let token = try await client.exchangeCodeForToken(
+                code: code,
+                codeVerifier: pkce.codeVerifier,
+                state: state
+            )
+            
+            // Store token
+            try await storage.setToken(token)
+            
+            // Update state
+            self.currentToken = token
+            self.isAuthenticated = true
+            
+            // Clear temporary data only on success
+            self.currentPKCE = nil
+            self.currentState = nil
+            
+            return token
+        } catch {
+            // Don't clear session data on error - allow retry
+            // Only clear if it's a final error like invalid state
+            if case AuthError.invalidState = error {
+                self.currentPKCE = nil
+                self.currentState = nil
+            }
+            throw error
+        }
     }
     
     /// Complete authentication with manually provided code when clipboard access is denied
@@ -124,6 +134,11 @@ public class ClaudeAuth: ObservableObject {
         
         // Use the existing completeAuthentication method
         return try await completeAuthentication(authCode: manualCode)
+    }
+    
+    /// Check if there's an active authentication session
+    public var hasActiveSession: Bool {
+        return currentPKCE != nil && currentState != nil
     }
     
     /// Authenticate with automatic browser presentation (iOS/macOS only)
